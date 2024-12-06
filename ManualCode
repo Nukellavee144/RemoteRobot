@@ -1,0 +1,116 @@
+#define ENCODER_OPTIMIZE_INTERRUPTS
+#include <Encoder.h>
+#include <Tone.h>
+#include <Wire.h>
+
+Tone step;
+bool LeftMotor = true; //Are we the left motor? For the purposes of fliping direction for parity between motors.
+
+int stepPin = 10;
+int dirPin = 11;
+int chA = 2;
+int chB = 3;
+
+Encoder motor(chA, chB);
+long int curSpeed;
+
+int MAXSPEED = 7000; //The max speed we can travel. Any faster and the encoder gets angry
+int ACCEL = 30; 
+int TICK = 10; //Time between ticks  ms
+int TURNSPEED = 2000;
+const long int in2pulse = 3360; //Conversion from inches to pulses
+
+void setup() {
+  Serial.begin(9600);
+  Wire.begin(LeftMotor ? 8 : 4); //Set our I2C bus based on which motor we are
+  pinMode(dirPin, OUTPUT);
+  pinMode(stepPin, OUTPUT);
+  step.begin(stepPin);
+
+  //Example Usage
+  changeMotorSpeed(MAXSPEED, 5 * 12); //Move 5 * 12 inches (5ft)
+  turn(180); //turn 180 degrees clockwise (negative for counter-clockwise
+}
+
+void loop() {
+  //Serial.println(curSpeed);
+  delay(TICK);
+}
+
+void changeMotorSpeed(long int speedToChangeTo, long int journeyDistance) {
+  Serial.print("Changing to Speed: ");
+  Serial.print(speedToChangeTo);
+  Serial.print(" Distance to travel: ");
+  Serial.println(journeyDistance);
+  motor.write(0); //reset encoder pluses
+
+  //If we're stopping, then don't worry about dir. Just keep it as it was before.
+  if(journeyDistance != 0)
+  {
+    if (!LeftMotor) {
+      digitalWrite(dirPin, journeyDistance >= 0 ? HIGH : LOW); //Check if we need to flip the direction of the motor. Negative journeyDistance means move backwards
+    }
+    else {
+      digitalWrite(dirPin, journeyDistance >= 0 ? LOW : HIGH); //Check if we need to flip the direction of the motor. Negative journeyDistance means move backwards
+    }
+  }
+
+  int accelPulses = 0;  //To keep track of how many pulses we travel during acceleration
+  long int journeyPulses = abs(journeyDistance) * in2pulse; //Get our journey distance in pulses
+  int accelDecel = curSpeed < speedToChangeTo ? 1 : -1; //Check if we need to accelerate or decelerate
+
+  //Accelerating
+  while ( (speedToChangeTo - curSpeed) * accelDecel  > 0.01 )   //While we aren't within 0.01 of our desired speed
+  { 
+    curSpeed += ACCEL * accelDecel ;   //Accel or decel
+    step.play(curSpeed);              //Play tone
+
+    if (accelDecel == -1 && curSpeed < 25){   //If we're decelerating, and we're under 25 pulses/s, just stop since we're close enough
+      curSpeed = 0;
+      step.stop();
+    }  
+
+    if ( abs(motor.read()) > journeyPulses * 0.5 && journeyDistance != 0){      //If we're still accelerating and we're more than 50% of the way we need to be, break out so we can slow down
+      changeMotorSpeed(0, 0);
+      return;
+    }
+
+    delay(TICK);
+  }
+
+  accelPulses = abs(motor.read()); //How many pulses did it take for us to get to speedToChangeTo?
+
+  //Maintain speed
+  while (abs(motor.read()) < journeyPulses){   //While we haven't completed our journey
+    if (curSpeed < 50 && journeyDistance == 0) 
+    {
+      break;
+    }
+
+    // if ( abs(motor.read()) > journeyPulses * 0.5){   //Check again for 50% completion, for shorter journeys   
+    //   changeMotorSpeed(0, 0); //Recursive function calls, hell yeah
+    // }
+
+    if ( abs(motor.read()) > journeyPulses - accelPulses){  //If we only have as much distance left as it originally took us to accelerate, start slowing down.
+      changeMotorSpeed(0, 0);
+      return;
+    }
+
+    delay (TICK);
+  }
+
+  return;
+}
+
+void turn(int turnAngle){
+  motor.write(0); //reset encoder pluses
+  digitalWrite(dirPin, turnAngle >= 0 ? HIGH : LOW);
+  step.play(TURNSPEED);
+
+  for (int i = 0 ; i < round(abs(turnAngle) * 2.8) ; i++){
+    delay(TICK);
+  }
+
+  step.stop();
+  return;
+}
