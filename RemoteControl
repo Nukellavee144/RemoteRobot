@@ -1,0 +1,50 @@
+
+//#define ENCODER_OPTIMIZE_INTERRUPTS
+#include <Tone.h>
+#include <Wire.h>
+#include <ServoInput.h> //This library is used to translate the RC receiver signal to an angle
+
+Tone step;
+
+int stepPin = 10;
+int dirPin = 11;
+
+ServoInputPin<3> input_fwd; //We have the receiver channels going to pin 3. We’re using receiver channels 2 and 3, which are the vertical axis on the two joysticks
+
+
+int MAXSPEED = 7000; //The max speed we can travel. Any faster and the encoder gets angry
+int TICK = 10; //Time between ticks  ms
+
+void setup() {
+  Serial.begin(9600);
+
+  input_fwd.attach(); //attach a signal to the input_fwd pin
+
+  //Set up pin inputs and outputs
+  pinMode(dirPin, OUTPUT);
+  pinMode(stepPin, OUTPUT);
+  step.begin(stepPin);
+}
+
+void loop() {
+
+  float fwd = input_fwd.getAngle(); //Convert and store the receiver signal into an angle
+  float value = map(fwd, 168, 12, -100, 100); //That angle is between 12 and 168 so remap that to -100 to 100, so 0 is the middle
+
+  Serial.println(fwd);
+
+  //Deadzones so neutral enough joystick values stop the motor
+  if (abs(value) < 5) 
+  {
+    step.stop();
+    return;
+  }
+  
+  digitalWrite(dirPin, value > 1 ? LOW : HIGH);  //Flip direction if the value is negative or positive.
+
+  int fwd_buffer = 0; //Start a new buffer value
+  fwd_buffer = map( abs(value), 0, 100, 0, MAXSPEED); //Remap the value between 0 and MAXSPEED based on our 0 to 100 input
+
+
+  step.play(fwd_buffer); //Play that tone to move the motor
+}
